@@ -20,7 +20,7 @@
 #         print(data)
 
 import socket
-import time
+import struct
 
 HOST = socket.gethostname() # '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 1234        # Port to listen on (non-privileged ports are > 1023)
@@ -38,11 +38,12 @@ def server_program():
         data = conn.recv(1024)
         # time.sleep(0.100)
         # data2 = conn.recv(1024)
-        print(f"Me, server, received : {data.decode()}")
-        frame_num += 1
+        print(f"Me, server, received : {data.decode()[6:]}")
         if not data:
             break
-        conn.sendall(f'RR{frame_num}'.encode())
+        print(struct.unpack("=I", data[:4]))
+        conn.sendall(data[:4])
+    conn.close()
 
 
 server_program()

@@ -14,17 +14,27 @@
 #     client_socket.close()
 #     print("end Client")
 import socket
-from threading import *
+import time
+from threading import Thread, Lock
 import struct
-
+from collections import OrderedDict
+LOCK = Lock()
 HOST = socket.gethostname()  # '127.0.0.1'  # The server's hostname or IP address
 PORT = 1234  # The port used by the server
 
 
 def client_program():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
     client_socket.connect((HOST, PORT))
+    address = "D:\\Users\\shahram\\test.txt"
+    window = Window(3)
+    frameManager = FrameManager(client_socket, address, window)
+    ackReceiver = AckReceiver(window, client_socket)
+    frameManager.start()
+    ackReceiver.start()
+    frameManager.join()
+    ackReceiver.join()
+    print("End all")
     # for i in range(4):
     #     client_socket.sendall(f'Frame{i}'.encode())
     #     data = client_socket.recv(1024)
@@ -39,72 +49,169 @@ def client_program():
     #     print('Received ack', repr(data))
 
 
-
-
 class Frame:
     def __init__(self, sequenceNumber, data):
         self.sequenceNumber = sequenceNumber
         self.data = data
         self.fcs = self.generateFCS()
+        self.packet = struct.pack("=I", self.sequenceNumber) + struct.pack("=H", self.fcs) + self.data.encode()
 
     @staticmethod
     def generateFCS():
-        #TODO
-        return "10101"
-
-    def pack(self):
-        return struct.pack("=I", self.sequenceNumber) + struct.pack("=H", self.fcs) + self.data
+        # TODO
+        return 4
 
 
 class Window:
-    def __init__(self, fieldLength, windowSize=None):
+    def __init__(self, dataSize, windowSize=None):
         self.nextFrame2send = 0
-        self.expectedAck = 0
         self.sentPackets = 0
-        self.fieldLength = fieldLength
-        self.maxWindowSize = 2 ** (fieldLength - 1)
+        self.expectedAck = 0
+        self.dataSize = dataSize
+        self.maxWindowSize = 2 ** (dataSize - 1)
+        self.transmittedFrames = OrderedDict()
+        self.isTransmitting = True
         if windowSize is not None:
             self.maxWindowSize = min(self.maxWindowSize, windowSize)
 
-    def send(self):
+    def isNotEmpty(self):
+        return len(self.transmittedFrames) > 0
+
+    def saveNumber(self, seqNumber):
+        self.transmittedFrames[seqNumber] = False
         self.nextFrame2send += 1
-        self.nextFrame2send %= 2 ** self.fieldLength
+        self.nextFrame2send %= 2 ** self.dataSize
         self.sentPackets += 1
+
+    def markAcked(self, seqNumber):
+        with LOCK:
+            self.transmittedFrames[seqNumber] = True
+            print(f"Marked{seqNumber}")
+
+    def stop(self, seqNumber):
+        # if seqNumber in self.transmittedFrames:
+        #     self.transmittedFrames[seqNumber] = True
+        with LOCK:
+            print(self.transmittedFrames)
+            if seqNumber == self.expectedAck:
+                temp = self.transmittedFrames.copy()
+                for sNum, value in temp.items():
+                    print(sNum, value)
+                    if value:
+                        del self.transmittedFrames[sNum]
+                    else:
+                        break
+                self.expectedAck = self.nextFrame2send if len(self.transmittedFrames) == 0\
+                    else list(self.transmittedFrames.keys())[0]
+                print(self.expectedAck)
+            print(self.transmittedFrames)
 
 
 class FrameManager(Thread):
-    def __init__(self, file, packetSize, maxWindowSize):
+    HEADER_SIZE = 6
+
+    def __init__(self, client_socket, fileAddress, window):
         Thread.__init__(self)
         self.frames = []
-        self.packetCount = 0
-        self.file = file
-        self.packetSize = packetSize
-        self.maxWindowSize = maxWindowSize
+        self.fileAddress = fileAddress
+        # self.packetSize = window.dataSize + FrameManager.HEADER_SIZE
+        self.window = window
+        self.client_socket = client_socket
 
     def makePackets(self):
-        f = open(self.file, "r")
+        file = open(self.fileAddress, "r")
         while True:
-            data = f.read(self.packetSize)
+            data = file.read(self.window.dataSize)
             if not data:
                 break
-            self.frames.append(Frame(self.packetCount % self.maxWindowSize, data))
-            self.packetCount += 1
+            self.frames.append(Frame(len(self.frames) % 2 ** self.window.dataSize, data))
 
     def run(self):
-        pass
+        self.makePackets()
+        packetCount = 0
+        while packetCount < len(self.frames): # self.window.isNotEmpty() or
+            if len(self.window.transmittedFrames.keys()) <= self.window.maxWindowSize:
+                print("Transmitted frames size : ", len(self.window.transmittedFrames.keys()))
+                self.window.saveNumber(packetCount % 2 ** self.window.dataSize)
+                SingleFrame(self.client_socket, self.frames[packetCount], self.window).start()
+                packetCount += 1
+        while True:
+            if len(self.window.transmittedFrames) == 0:
+                self.window.isTransmitting = False
+                break
+        self.client_socket.close()
+        print("End FrameManager")
+
+
+class SingleFrame(Thread):
+    def __init__(self, client_socket, frame, window, timeOut=5):
+        Thread.__init__(self)
+        self.frame = frame
+        self.window = window
+        self.timeOut = timeOut
+        self.lastSent = None
+        self.client_socket = client_socket
+
+    def run(self):
+        self.lastSent = time.time()
+        self.client_socket.sendall(self.frame.packet)
+        while not self.window.transmittedFrames[self.frame.sequenceNumber]:
+
+            if time.time() - self.lastSent > self.timeOut:
+
+                print(self.window.transmittedFrames)
+                print("Elapsed : ", time.time() - self.lastSent)
+                self.lastSent = time.time()
+                self.client_socket.sendall(self.frame.packet)
+        self.window.stop(self.frame.sequenceNumber)
+        print("End SingleFrame")
 
 
 class AckReceiver(Thread):
-    def __init__(self):
+    def __init__(self, window, client_socket):
         Thread.__init__(self)
+        self.window = window
+        self.client_socket = client_socket
+
+    def run(self):
+        while self.window.isTransmitting:
+            print("-----------------------Ack")
+            try:
+                ack = self.client_socket.recv(1024)
+                if not ack:
+                    break
+                print("Received ack", self.parseAck(ack))
+                print(self.window.transmittedFrames[self.parseAck(ack)])
+                self.window.markAcked(self.parseAck(ack))
+            except Exception as error:
+                print("Could not receive the packet")
+                print(error)
+            finally:
+                print("End AckReceiver")
+        print("End AckReceiver")
+        # self.client_socket.close()
 
 
-if __name__ == '__main__':
-    pass
-    # message = "Hello, world"
-    # file = "D:\\Users\\shahram\\test.txt"
-    # f = open(file, "rb")
-    # message = f.read(3)
+    @staticmethod
+    def parseAck(ack):
+        # TODO
+        return struct.unpack("=I", ack[:4])[0]
+
+
+# if __name__ == '__main__':
+#
+#     # temp = Window(3)
+#     # n = 10
+#     # for i in range(n)[::2]:
+#     #     temp.saveNumber(i)
+#     #     temp.saveNumber(i+1)
+#     # temp.stop(2)
+#     # message = "Hello, world"
+#     file = "D:\\Users\\shahram\\test.txt"
+#     f = open(file, "rb")
+#     message = f.read(3)
+#     frame = Frame(1, message)
+#     print(frame.packet)
     # print(data)
     # received = struct.pack("=I", 5) + struct.pack("=H", 4) + message
     # print(received)
@@ -114,4 +221,4 @@ if __name__ == '__main__':
     # print(seqNum[0], fcs[0], data.decode())
 
 
-# client_program()
+client_program()
