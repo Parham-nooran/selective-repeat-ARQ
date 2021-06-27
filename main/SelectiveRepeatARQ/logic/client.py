@@ -91,14 +91,13 @@ class Window:
 
     def markAcked(self, seqNumber):
         with LOCK:
+            print("Passed lock")
             if seqNumber in self.transmittedFrames.keys():
                 self.transmittedFrames[seqNumber][1] = True
                 print(f"Marked{seqNumber}")
 
 
     def stop(self, seqNumber):
-        if seqNumber in self.transmittedFrames.keys():
-            self.transmittedFrames[seqNumber][1] = True
         with LOCK:
             # print(self.transmittedFrames)
             if seqNumber == self.expectedAck:
@@ -213,7 +212,10 @@ class AckReceiver(Thread):
         return struct.unpack("=?", ack[:1])[0], struct.unpack("=I", ack[1:5])[0]
 
 
-client_program()
+# if __name__ == '__main__':
+#     for i in range(5):
+#         client_program(i+2)
+# client_program(9)
 # if __name__ == '__main__':
 #
 #     # temp = Window(3)

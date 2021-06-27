@@ -22,7 +22,7 @@
 import socket
 import struct
 import time
-
+from collections import OrderedDict
 FORMAT = "utf-8"
 HOST = socket.gethostbyname(socket.gethostname())
 PORT = 5050
@@ -33,18 +33,22 @@ def server_program():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind(ADDRESS)
     server_socket.listen()
-    while True:
+    runningTimes = OrderedDict()
+    while len(runningTimes.keys()) < 20:
         print(f"[LISTENING] Server is listening on {HOST}")
         conn, addr = server_socket.accept()
         print('[CONNECTING] Connected by', addr)
         start = time.time()
         data = conn.recv(1024)
-        dataSize = struct.unpack("=I", data[:4])
-        fieldLength = struct.unpack("=H", data[4:6])
-        PacketManager(conn, addr, fieldLength[0], dataSize[0]).start()
+        dataSize = struct.unpack("=I", data[:4])[0]
+        fieldLength = struct.unpack("=H", data[4:6])[0]
+        PacketManager(conn, addr, fieldLength, dataSize).start()
         end = time.time()
         print(f"Time to receive the information : {(end - start)* 1000} ms")
-
+        if fieldLength not in runningTimes.keys():
+            runningTimes[fieldLength] = []
+        runningTimes[fieldLength].append((end - start)*1000)
+        print(runningTimes)
 
 
 class PacketManager:
