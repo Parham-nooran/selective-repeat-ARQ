@@ -43,15 +43,13 @@ class Frame:
 
 class Window:
     def __init__(self, dataSize, windowSize=None):
-        self.nextFrame2send = 0
-        self.sentPackets = 0
-        self.expectedAck = 0
+        # self.nextFrame2send = 0
+        # self.sentPackets = 0
+        # self.expectedAck = 0
         self.dataSize = dataSize
         self.maxWindowSize = 2 ** (dataSize - 1)
-        self.transmittedFrames = OrderedDict()
-        self.start = 0
-        self.end = 0
-        self.lastAcked = 0
+        self.transmittedFrames = {}
+        # self.lastAcked = 0
         self.isTransmitting = True
         if windowSize is not None:
             self.maxWindowSize = min(self.maxWindowSize, windowSize)
@@ -61,66 +59,36 @@ class Window:
 
     def saveNumber(self, seqNumber):
         self.transmittedFrames[seqNumber] = [None, False]
-        self.end = seqNumber
-        self.expectedAck = seqNumber
-        self.nextFrame2send += 1
-        self.nextFrame2send %= 2 ** self.dataSize
-        self.sentPackets += 1
+        # self.expectedAck = seqNumber
+        # self.nextFrame2send += 1
+        # self.nextFrame2send %= 2 ** self.dataSize
+        # self.sentPackets += 1
 
     def markAcked(self, seqNumber):
         with LOCK:
-            print(seqNumber)
-            if seqNumber - 1 in self.transmittedFrames.keys():
-                self.transmittedFrames[seqNumber - 1] = [None, True]
-                # if self.start < self.end:
-                #     for x in self.transmittedFrames.keys():
-                #         if x < seqNumber:
-                #             self.transmittedFrames[x] = [None, True]
-                #         else:
-                #             break
-                # elif self.start > self.end:
-                #     if seqNumber < self.start:
-                #         for x in self.transmittedFrames.keys():
-                #             if x > self.start:
-                #                 self.transmittedFrames[x] = [None, True]
-                #         for x in self.transmittedFrames.keys():
-                #             if x < seqNumber:
-                #                 self.transmittedFrames[x] = [None, True]
-                #     else:
-                #         for x in self.transmittedFrames.keys():
-                #             if self.start <= x < seqNumber:
-                #                 self.transmittedFrames[x] = [None, True]
-                print(f"Marked {seqNumber}")
-            self.stop(seqNumber)
+            print("Passed ack")
+            if seqNumber > list(self.transmittedFrames.keys())[0]:
+                for key in self.transmittedFrames.keys():
+                    if key < seqNumber:
+                        self.transmittedFrames[key][1] = True
+                    else:
+                        break
+            elif seqNumber < list(self.transmittedFrames.keys())[0]:
+                for key in self.transmittedFrames.keys():
+                    if list(self.transmittedFrames.keys())[0] <= key < 2 ** self.dataSize or key < seqNumber:
+                        self.transmittedFrames[key][1] = True
+                    else:
+                        break
+            print(f"Marked {seqNumber}")
 
 
-    def stop(self, seqNumber):
+    def stop(self):
         temp = self.transmittedFrames.copy()
-        for sNum, value in temp.items():
-            if sNum < seqNumber and value[1]:
-                del self.transmittedFrames[sNum]
-                self.start = sNum + 1
+        for key, value in temp.items():
+            if value[1]:
+                del self.transmittedFrames[key]
             else:
                 break
-        # if self.start < self.end:
-        #     for sNum, value in temp.items():
-        #         if sNum < seqNumber and value[1]:
-        #             del self.transmittedFrames[sNum]
-        #             self.start = sNum + 1
-        #         else:
-        #             break
-        # elif self.start > self.end:
-        #     for sNum, value in temp.items():
-        #         if sNum >= self.start > seqNumber or (seqNumber > self.start and self.start <= sNum < seqNumber):
-        #             if value[1]:
-        #                 del self.transmittedFrames[sNum]
-        #                 self.start = sNum + 1
-        #     if seqNumber < self.start:
-        #         for sNum, value in temp.items():
-        #             if sNum < seqNumber:
-        #                 if value[1]:
-        #                     del self.transmittedFrames[sNum]
-        #                     self.start = sNum + 1
 
 
 class FrameManager(Thread):
@@ -155,15 +123,14 @@ class FrameManager(Thread):
             if len(self.window.transmittedFrames.keys()) < self.window.maxWindowSize:
                 # print("[Sending] Client is sending a packet ...")
                 self.window.saveNumber(packetCount % 2 ** self.window.dataSize)
-                self.window.end = self.frames[packetCount].sequenceNumber
                 SingleFrame(self.client_socket, self.frames[packetCount], self.window).start()
                 time.sleep(0.00000001)
                 packetCount += 1
         print(self.window.transmittedFrames)
-        # while True:
-        #     if len(self.window.transmittedFrames) == 0:
-        #         self.window.isTransmitting = False
-        #         break
+        while True:
+            if len(self.window.transmittedFrames) == 0:
+                self.window.isTransmitting = False
+                break
         # self.client_socket.close()
         print("End FrameManager")
 
@@ -188,7 +155,7 @@ class SingleFrame(Thread):
     def run(self):
         self.window.transmittedFrames[self.frame.sequenceNumber][0] = time.time()
         self.client_socket.sendall(self.frame.packet)
-        print(f"Sent {self.frame.packet}")
+        # print(f"Sent {self.frame.packet}")
         # self.timeOutProtocol()
         # print("End SingleFrame")
 
@@ -208,12 +175,11 @@ class AckReceiver(Thread):
             print("Received ack", self.parseAck(ack))
             typeOfAck, seqNum = self.parseAck(ack)
             if typeOfAck:
-                self.window.markAcked(seqNum)
+                while not self.window.transmittedFrames[(seqNum - 1) % 2 ** self.window.dataSize][1]:
+                    self.window.markAcked(seqNum)
+                self.window.stop()
             else:
                 self.frameManager.sendAgain(seqNum)
-            # except Exception as error:
-            #     print("Could not receive the packet")
-            #     print(error)
         print("End AckReceiver")
         self.client_socket.close()
 
@@ -227,6 +193,7 @@ class AckReceiver(Thread):
 # if __name__ == '__main__':
 #     for i in range(5):
 #         client_program(i+2)
+#         time.sleep(5)
 # def runAll():
 #     # for i in range(5):
 #     #     client_program(i+2)
@@ -235,4 +202,7 @@ class AckReceiver(Thread):
 #
 #
 # runAll()
-client_program()
+for j in range(1, 11):
+    for i in range(4):
+        client_program(j)
+        time.sleep(1)

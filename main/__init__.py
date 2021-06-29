@@ -33,6 +33,9 @@ from collections import OrderedDict
     # test[:5] = [0, False] * 5
     # print(test)
 if __name__ == '__main__':
+    for i in range(5):
+        print(i)
+        time.sleep(2)
     # test = {}
     #
     # for i in range(10)[5:]:
@@ -41,5 +44,5 @@ if __name__ == '__main__':
     #     test[i] = [i + 5, True]
     # print(test)
     # print(list(test.keys())[0])
-    print(-1 % 5)
+    # print(-1 % 5)
 
