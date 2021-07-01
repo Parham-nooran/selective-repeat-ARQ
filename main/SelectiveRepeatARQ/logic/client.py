@@ -23,7 +23,8 @@ ADDRESS = (HOST, PORT)
 کلاس Client برای نگه داشتن اطلاعات مهم کلاینت و استفاده از آن برای نمایش گرافیکی اطلاعات پیام و نحوه ی ارسال آن تعریف 
 شده است. تابع client_program برای اتصال به سرور با استفاده از اطلاعات اتصال تعریف شده در ابتدای کد به کار می رود در 
 این کلاس دو رشته می سازیم تا بتوان وظیفه ی دریافت تاییدیه و ارسال بسته ها را به طور همزمان انجام داد زمان شروع تا 
-اتمام کار این رشته ها ممکن است با زمان صرف شده برای ارسال بسته ها متفاوت باشد. 
+اتمام کار این رشته ها ممکن است با زمان صرف شده برای ارسال بسته ها متفاوت باشد. در اینجا می توان احتمال ارسال بسته ها 
+با گمشدگی را تنظیم کرد در صورت عدم نیاز به خطا می توان مقدار FrameLostProb را برابر منفی 1 قرار داد 
 
 """
 
@@ -114,7 +115,7 @@ class Window:
                         self.transmittedFrames[key][1] = True
                     else:
                         break
-            print(f"Marked {seqNumber}")
+            # print(f"Marked {seqNumber}")
 
     def stop(self):  # Deletes the acknowledged frames from the dictionary
         with LOCK:
@@ -122,7 +123,7 @@ class Window:
             for key, value in temp.items():
                 if value[1]:
                     del self.transmittedFrames[key]
-                    print("Deleted ", key)
+                    # print("Deleted ", key)
                 else:
                     break
 
@@ -172,7 +173,7 @@ class FrameManager(Thread):
         while packetCount < len(self.frames):
             # print(self.window.transmittedFrames, len(self.window.transmittedFrames), self.window.maxWindowSize)
             if len(self.window.transmittedFrames.keys()) < self.window.maxWindowSize:
-                # print("[Sending] Client is sending a packet ...")
+                print("[Sending] Client is sending a packet ...")
                 self.window.saveNumber(packetCount % 2 ** self.window.dataSize)
                 SingleFrame(self.client_socket, self.frames[packetCount], self.window, self.frameLostProb).start()
                 if self.graphiste is not None:
@@ -224,7 +225,7 @@ class SingleFrame(Thread):
             self.client_socket.sendall(self.frame.packet)
         # print(f"Sent {self.frame.packet}")
         self.timeOutProtocol()
-        # print("End SingleFrame")
+        print(f"[Sent] Frame #{self.frame.sequenceNumber} (\"{self.frame.data}\"), sent successfully.\n")
 
 
 """
@@ -249,14 +250,14 @@ class AckReceiver(Thread):
             ack = self.client_socket.recv(1024)
             if not ack:
                 break
-            print("Received ack", self.parseAck(ack))
+            print("Received acknowledgement : ", self.parseAck(ack), "\n")
             typeOfAck, seqNum = self.parseAck(ack)
             if typeOfAck:
                 if (seqNum - 1) % 2 ** self.window.dataSize in self.window.transmittedFrames.keys():
                     while not self.window.transmittedFrames[(seqNum - 1) % 2 ** self.window.dataSize][1]:
                         self.window.markAcked(seqNum)
                     if self.frameManager.graphiste is not None:
-                        self.frameManager.graphiste.scrollable_frame.grid_slaves(row=seqNum + 1, column=4)[0]["text"] = \
+                        self.frameManager.graphiste.scrollable_frame.grid_slaves(row=seqNum + 1, column=4)[0]["text"] =\
                             "Sure\t"
                         self.frameManager.graphiste.scrollable_frame.grid_slaves(row=seqNum + 1, column=4)[0]["bg"] = \
                             "Light Green"
@@ -336,11 +337,12 @@ class Graphiste:
 
 
 # if __name__ == '__main__':
-#     for j in range(1, 8):
-#         for i in range(2):
-#             Client(j).client_program()
-#             time.sleep(1)
+# for j in range(1, 11):
+#     for i in range(4):
+#         Client(j).client_program()
+#         time.sleep(1)
+
 
 if __name__ == '__main__':
-    # Graphiste(Client(20)).start()
-    Client(5).client_program()
+    # Client(5).client_program()
+    Graphiste(Client(5)).start()

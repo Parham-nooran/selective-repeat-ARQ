@@ -1,5 +1,6 @@
 import socket
 import time
+import random
 from threading import Thread, Lock
 import struct
 from collections import OrderedDict
@@ -81,9 +82,9 @@ class Frame:
         self.data = data
         self.fcs = self.generateFCS()
         if pBit is not None:
-            self.packet = struct.pack("=I", self.sequenceNumber) + struct.pack("=?", False)
+            self.packet = struct.pack("=I", self.sequenceNumber) + struct.pack("=?", pBit)
         else:
-            self.packet = struct.pack("=I", self.sequenceNumber) + struct.pack("=?", False) +\
+            self.packet = struct.pack("=I", self.sequenceNumber) + struct.pack("=?", False) + \
                           self.data.encode(FORMAT) + struct.pack("=H", self.fcs)
 
     @staticmethod
@@ -95,7 +96,7 @@ class Frame:
 class FrameManager(Thread):
     HEADER_SIZE = 6
 
-    def __init__(self, client_socket, fileAddress, window):
+    def __init__(self, client_socket, fileAddress, window, frameLostProb=-1):
         Thread.__init__(self)
         self.frames = []
         self.fileAddress = fileAddress
@@ -103,6 +104,7 @@ class FrameManager(Thread):
         self.window = window
         self.packetCount = 0
         self.client_socket = client_socket
+        self.frameLostProb = frameLostProb
 
     def makePackets(self):
         file = open(self.fileAddress, "r")
@@ -123,41 +125,43 @@ class FrameManager(Thread):
                 # print("[Sending] Client is sending a packet ...")
                 with LOCK:
                     self.window.saveNumber(self.nextFrame2Send)
-                    SingleFrame(self.client_socket, self.frames[self.packetCount], self.window).start()
-                    time.sleep(0.01)
+                    SingleFrame(self.client_socket, self.frames[self.packetCount], self.window, self).start()
+                    time.sleep(0.0001)
                     self.nextFrame2Send += 1
                     self.nextFrame2Send %= 2 ** self.window.dataSize
                     self.packetCount += 1
-        # print(self.window.transmittedFrames)
-        while True:
-            # print(self.window.transmittedFrames)
-            if len(self.window.transmittedFrames) == 0:
-                self.window.isTransmitting = False
-                break
+        print(self.window.transmittedFrames)
+        if len(self.window.transmittedFrames) != 0:
+            time.sleep(2)
+        self.window.isTransmitting = False
+        print(self.window.transmittedFrames)
         print("End FrameManager")
 
 
 class SingleFrame(Thread):
-    def __init__(self, client_socket, frame, window, timeOut=3):
+    def __init__(self, client_socket, frame, window, frameManager, timeOut=3):
         Thread.__init__(self)
         self.frame = frame
         self.window = window
         self.timeOut = timeOut
         self.client_socket = client_socket
+        self.frameManager = frameManager
 
     def timeOutProtocol(self):
-        while not self.window.transmittedFrames[self.frame.sequenceNumber][1]:
-            if time.time() - self.window.transmittedFrames[self.frame.sequenceNumber][0] > self.timeOut:
-                # print("Elapsed : ", time.time() - self.window.transmittedFrames[self.frame.sequenceNumber][0])
-                # self.window.transmittedFrames[self.frame.sequenceNumber][0] = time.time()
-                # self.client_socket.sendall(self.frame.packet)
-                self.client_socket.sendall(Frame(self.frame.sequenceNumber, pBit=True).packet)
+        while self.frame.sequenceNumber in self.window.transmittedFrames and\
+                not self.window.transmittedFrames[self.frame.sequenceNumber][1] and self.window.isTransmitting:
+            with LOCK:
+                if self.frame.sequenceNumber in self.window.transmittedFrames and\
+                        time.time() - self.window.transmittedFrames[self.frame.sequenceNumber][0] > self.timeOut:
+                    # print("Elapsed : ", time.time() - self.window.transmittedFrames[self.frame.sequenceNumber][0])
+                    self.client_socket.sendall(Frame(self.frame.sequenceNumber, pBit=True).packet)
         self.window.stop()
 
     def run(self):
         self.window.transmittedFrames[self.frame.sequenceNumber][0] = time.time()
-        self.client_socket.sendall(self.frame.packet)
-        # self.timeOutProtocol()
+        if random.random() > self.frameManager.frameLostProb:
+            self.client_socket.sendall(self.frame.packet)
+        self.timeOutProtocol()
         # print("End SingleFrame")
 
 
@@ -176,9 +180,10 @@ class AckReceiver(Thread):
             print("Received ack", self.parseAck(ack))
             typeOfAck, seqNum = self.parseAck(ack)
             if typeOfAck:
-                while not self.window.transmittedFrames[(seqNum - 1) % (2 ** self.window.dataSize)][1]:
+                while seqNum - 1 in self.window.transmittedFrames.keys() and\
+                        not self.window.transmittedFrames[(seqNum - 1) % (2 ** self.window.dataSize)][1]:
                     self.window.markAcked(seqNum)
-                self.window.stop()
+                # self.window.stop()
             else:
                 while self.frameManager.nextFrame2Send != seqNum:
                     with LOCK:
@@ -200,4 +205,13 @@ class AckReceiver(Thread):
         return struct.unpack("=?", ack[:1])[0], struct.unpack("=I", ack[1:5])[0]
 
 
+# for j in range(2, 12):
+#     for i in range(4):
+#         client_program(j)
+        # time.sleep(1)
+    # Graphiste(Client(20)).start()
+
 client_program()
+# client_program(1)
+# time.sleep(1)
+# client_program(1)

@@ -3,6 +3,8 @@ import struct
 import time
 from collections import OrderedDict
 
+from main.SelectiveRepeatARQ.graphics import Plotter
+
 FORMAT = "utf-8"
 HOST = socket.gethostbyname(socket.gethostname())
 PORT = 5050
@@ -14,7 +16,7 @@ def server_program():
     server_socket.bind(ADDRESS)
     server_socket.listen()
     runningTimes = OrderedDict()
-    while len(runningTimes.keys()) < 20:
+    for i in range(40):
         print(f"[LISTENING] Server is listening on {HOST}")
         conn, addr = server_socket.accept()
         print('[CONNECTING] Connected by', addr)
@@ -29,6 +31,7 @@ def server_program():
             runningTimes[fieldLength] = []
         runningTimes[fieldLength].append((end - start) * 1000)
         print(runningTimes)
+    Plotter(runningTimes).plot()
 
 
 class PacketManager:
@@ -38,21 +41,24 @@ class PacketManager:
         self.addr = addr
         self.expectedFrame = 0
         self.received = 0
-        self.maxWindowSize = 2 ** fieldLength - 1
+        self.maxWindowSize = 2 ** (fieldLength - 1)
         self.fieldLength = fieldLength
         self.dataSize = dataSize
 
     def sendAck(self, data=None, askedSeqNum=None):
-        seqNum = struct.unpack("=I", data[:4])[0]
+
         if data is None:
+            print("asked : ", askedSeqNum)
             if 0 < askedSeqNum < self.expectedFrame or askedSeqNum < (self.expectedFrame - self.maxWindowSize) %\
                     2 ** self.fieldLength and askedSeqNum < self.expectedFrame:
-                self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", self.expectedFrame))
+                self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", askedSeqNum+1))
+                print(f"Sent ack for {askedSeqNum + 1}")
             else:
                 self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", askedSeqNum))
         else:
+            seqNum = struct.unpack("=I", data[:4])[0]
             if seqNum == self.expectedFrame:
-                self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", (seqNum + 1) % 2 ** self.fieldLength))
+                self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", (seqNum + 1) % (2 ** self.fieldLength)))
                 print(f"Send ack {seqNum}")
                 self.result += data.decode(FORMAT)[5:-2]
                 self.expectedFrame += 1
@@ -65,13 +71,13 @@ class PacketManager:
             print(len(self.result), self.dataSize)
             print(self.result)
             data = self.conn.recv(1024)
-            seqNum = struct.unpack("=I", data[:4])[0]
             if not data:
                 break
+            seqNum = struct.unpack("=I", data[:4])[0]
             p_f = data[4]
             print("P/F = ", p_f)
             if p_f:
-                self.sendAck(seqNum)
+                self.sendAck(askedSeqNum=seqNum)
             else:
                 self.received += self.fieldLength
                 print(f"[{self.addr}] Sequence number : {seqNum}, data :{data.decode(FORMAT)[5:-2]}")

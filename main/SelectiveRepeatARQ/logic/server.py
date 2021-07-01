@@ -28,7 +28,7 @@ ADDRESS = (HOST, PORT)
 
 
 class Server:
-    def __init__(self, rangeOfML=14):
+    def __init__(self, rangeOfML=40):
         self.graphiste = None
         self.server_socket = None
         self.rangeOfML = rangeOfML
@@ -44,7 +44,7 @@ class Server:
         for i in range(self.rangeOfML):
             print(f"[LISTENING] Server is listening on {HOST}")
             conn, addr = self.server_socket.accept()
-            print('[CONNECTING] Connected by', addr)
+            print('[CONNECTING] Connected by', addr, "\n\n")
             start = time.time()
             data = conn.recv(1024)
             dataSize = struct.unpack("=I", data[:4])[0]
@@ -53,7 +53,7 @@ class Server:
             self.packetManager = PacketManager(conn, addr, self.fieldLength, self.graphiste, dataSize)
             self.packetManager.start()
             end = time.time()
-            print(f"Elapsed time : {(end - start) * 1000} ms")
+            print(f"Elapsed time : {(end - start) * 1000} ms\n")
             if self.fieldLength not in runningTimes.keys():
                 runningTimes[self.fieldLength] = []
             runningTimes[self.fieldLength].append((end - start) * 1000)
@@ -98,37 +98,38 @@ class PacketManager:
         # the order is retained
         seqNum = struct.unpack("=I", data[:4])[0]
 
+        print("Server's buffer : ", self.buffer)
+
         if self.expectedFrame == seqNum:
             self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", (seqNum + 1) % (2 ** self.fieldLength)))
-            print(f"Send ack {seqNum}")
+            print(f"[Sending] Send acknowledgement for frame #{seqNum}\n\n\n")
             self.result += data.decode(FORMAT)[6:]
             self.received += self.fieldLength
             self.expectedFrame += 1
-            print("Result First cond : ", self.result)
+            # print("Result First cond : ", self.result)
             if len(self.buffer) != 0 and seqNum in self.buffer:
                 del self.buffer[seqNum]
 
         elif len(self.buffer) != 0 and seqNum in self.buffer.keys():
-            print("Third condition")
+            # print("Third condition")
             self.buffer[seqNum] = data.decode(FORMAT)[6:]
         elif (len(self.buffer) == 0 and (self.expectedFrame < seqNum < 2 ** self.fieldLength
-                                         or seqNum < (self.expectedFrame + self.maxWindowSize) % 2 ** self.fieldLength)) \
+                                         or seqNum < (self.expectedFrame + self.maxWindowSize) % 2 ** self.fieldLength))\
                 or ((self.expectedFrame < seqNum < (self.expectedFrame + self.maxWindowSize) % 2 ** self.fieldLength
                      or seqNum < (self.expectedFrame - self.maxWindowSize) % 2 ** self.fieldLength)
                     and 0 < len(self.buffer) < self.maxWindowSize):
-            print("Second condition")
+            # print("Second condition")
             start = self.expectedFrame if len(self.buffer) == 0 else \
                 (list(self.buffer.keys())[len(self.buffer.keys()) - 1] + 1) % (2 ** self.fieldLength)
-            print("Start : ", start)
+            # print("Start : ", start)
             for i in range(start, seqNum if seqNum >= start else 2 ** self.fieldLength + seqNum):
                 if i % 2 ** self.fieldLength not in self.buffer:
                     self.buffer[i % 2 ** self.fieldLength] = None
-                    print(f"Sent reject for {i % (2 ** self.fieldLength)}")
+                    print(f"[Sending] Sent reject for frame #{i % (2 ** self.fieldLength)}")
 
             self.buffer[seqNum] = data.decode(FORMAT)[6:]
 
         if len(self.buffer) != 0:
-            print(self.buffer)
             temp = self.buffer.copy().keys()
             for k in temp:
                 if self.buffer[k] is not None:
@@ -138,8 +139,7 @@ class PacketManager:
                     self.expectedFrame += 1
                 else:
                     break
-            print("Result last cond : ", self.result)
-            print(self.buffer, self.expectedFrame)
+            # print(self.buffer, self.expectedFrame)
 
             if len(self.buffer) != 0 and self.lastRej is None or self.lastRej == self.expectedFrame % \
                     (2 ** self.fieldLength):
@@ -148,8 +148,8 @@ class PacketManager:
                 self.lastRej = self.expectedFrame % (2 ** self.fieldLength)
 
         self.expectedFrame %= 2 ** self.fieldLength
-        # if len(self.buffer) != 0:
-        #     self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", self.expectedFrame % (2 ** self.fieldLength)))
+        # if len(self.buffer) != 0: self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", self.expectedFrame
+        # % (2 ** self.fieldLength)))
 
     def start(self):  # Receives the data as explained
         while self.received < self.dataSize:
@@ -160,7 +160,7 @@ class PacketManager:
             seqNum = struct.unpack("=I", data[:4])[0]
             if self.graphiste is not None:
                 self.graphiste.receive(data.decode(FORMAT)[6:])
-            print(f"[{self.addr}] Sequence number : {seqNum}, data :{data.decode(FORMAT)[6:]}")
+            print(f"[{self.addr}] Sequence number : {seqNum}, Data : \"{data.decode(FORMAT)[6:]}\"\n")
             self.sendAck(data)
         print(self.result)
         self.conn.close()
@@ -181,11 +181,15 @@ class Graphiste:
         self.fieldLength = self.server.fieldLength
         self.root = tk.Tk()
         self.count = 0
+        self.message = tk.Label(text="\t\t[LISTENING] Server is listening on {HOST}\t\t")
+        self.root.geometry("400x400")
+        self.message.grid(row=2, column=2)
 
     def start(self):
         serverThread = Thread(target=self.server.server_program)
         serverThread.start()
         tk.mainloop()
+
 
     def receive(self, data):
         self.count += 1
@@ -193,7 +197,6 @@ class Graphiste:
         label.grid(row=self.count, column=1)
 
 
-# if __name__ == '__main__':
-
-Server().server_program()
-# Graphiste(Server()).start()
+if __name__ == '__main__':
+# Server().server_program()
+    Graphiste(Server()).start()
