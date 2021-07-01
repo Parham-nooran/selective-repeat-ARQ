@@ -60,13 +60,21 @@ class Server:
             print(runningTimes)
         # Plotter(runningTimes).plot()
 
+# class Window:
+#     def __init__(self, dataSize, windowSize=None):
+#         self.dataSize = dataSize
+#         self.maxWindowSize = 2 ** (dataSize - 1)
+#         if windowSize is not None:
+#             self.maxWindowSize = min(self.maxWindowSize, windowSize)
 
-class Window:
-    def __init__(self, dataSize, windowSize=None):
-        self.dataSize = dataSize
-        self.maxWindowSize = 2 ** (dataSize - 1)
-        if windowSize is not None:
-            self.maxWindowSize = min(self.maxWindowSize, windowSize)
+
+"""
+
+برای دریافت بسته ها و ارسال تاییدیه به کار می رود. تا زمانی که اندازه ی بسته های دریافت شده ی بدون مشکل از اندازه ی 
+داده های دریافتی کمتر باشد داده دریافت می کند. اندازه داده های دریافتی در ابتدا توسط فرستنده ای که ارتباط را برقرار 
+کرده ارسال می شود و با رسیدن داده های دریافتی به این مقدار دریافت بسته ها متوقف می شود. 
+
+"""
 
 
 class PacketManager:
@@ -84,7 +92,10 @@ class PacketManager:
         self.fieldLength = fieldLength
         self.dataSize = dataSize
 
-    def sendAck(self, data):
+    def sendAck(self, data):  # Sends an acknowledgement for the received packages or
+        # reject if packets are received out of order.
+        # It is also responsible for buffering the out of order frames and sending the appropriate acknowledgement when
+        # the order is retained
         seqNum = struct.unpack("=I", data[:4])[0]
 
         if self.expectedFrame == seqNum:
@@ -140,7 +151,7 @@ class PacketManager:
         # if len(self.buffer) != 0:
         #     self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", self.expectedFrame % (2 ** self.fieldLength)))
 
-    def start(self):
+    def start(self):  # Receives the data as explained
         while self.received < self.dataSize:
             # print("Memory : ", self.memory)
             data = self.conn.recv(1024)
@@ -153,6 +164,13 @@ class PacketManager:
             self.sendAck(data)
         print(self.result)
         self.conn.close()
+
+
+"""
+
+برای ساخت رابط کاربری و نمایش روند دریافت بسته ها به کار می رود.
+
+"""
 
 
 class Graphiste:
