@@ -127,6 +127,15 @@ class Window:
                     break
 
 
+"""
+
+برای مدیریت بسته ها به کار می رود.
+در این کلاس توابع لازم برای ساخت و ارسال بسته ها تعریف می شود.
+(توابع در کد کامنت شده اند.)
+
+"""
+
+
 class FrameManager(Thread):
     HEADER_SIZE = 6
 
@@ -139,7 +148,8 @@ class FrameManager(Thread):
         self.graphiste = graphiste
         self.frameLostProb = frameLostProb
 
-    def makePackets(self):
+    def makePackets(self):  # Reads the information from the specified file and makes packets including parts of this
+        # data that are as large as the specified fieldLength of the Window class, instance
         file = open(self.fileAddress, "r")
         while True:
             data = file.read(self.window.dataSize)
@@ -147,13 +157,13 @@ class FrameManager(Thread):
                 break
             self.frames.append(Frame(len(self.frames) % 2 ** self.window.dataSize, data))
 
-    def sendAgain(self, seqNum):
+    def sendAgain(self, seqNum):  # Sends again a failed or lost packet
         self.window.transmittedFrames[seqNum][0] = time.time()
         if random.random() > self.frameLostProb:
             print(f"Sent again : {self.frames[seqNum].data}")
             self.client_socket.sendall(self.frames[seqNum].packet)
 
-    def run(self):
+    def run(self):  # Sends all the made packets while considering the sliding window protocol
         if self.graphiste is None:
             self.makePackets()
         packetCount = 0
@@ -176,6 +186,14 @@ class FrameManager(Thread):
         self.window.isTransmitting = False
         # self.client_socket.close()
         print("End FrameManager")
+
+
+"""
+
+این کلاس برای پیاده سازی پروتکل Time out تعریف شده است. در این کلاس برای ارسال هر بسته یک رشته فعال می شود که تا 
+دریافت تاییدیه ی مربوط به آن رشته در زمان های مشخصی بسته را مجدد ارسال می کند. 
+
+"""
 
 
 class SingleFrame(Thread):
@@ -207,6 +225,16 @@ class SingleFrame(Thread):
         # print(f"Sent {self.frame.packet}")
         self.timeOutProtocol()
         # print("End SingleFrame")
+
+
+"""
+
+برای دریافت تاییده ی بسته ها به کار می رود.
+در صورتی که کلاینت بسته ای دریافت کند در متد Parser مربوطه بسته تجزیه شده و متناسب با آن عملیات ارسال مجدد و یا تایید و 
+حذف بسته از لیست ارسال شده(تایید نشده) ها انجام می شود.
+نمونه ای ن کلاس تا زمان دریافت تاییدیه برای همه ی بسته های ارسال شده فعال خواهد ماند
+
+"""
 
 
 class AckReceiver(Thread):
@@ -241,6 +269,13 @@ class AckReceiver(Thread):
     @staticmethod
     def parseAck(ack):
         return struct.unpack("=?", ack[:1])[0], struct.unpack("=I", ack[1:5])[0]
+
+
+"""
+
+برای ساخت رابط کاربری و نمایش روند ارسال و تایید بسته ها به کار می رود.
+
+"""
 
 
 class Graphiste:

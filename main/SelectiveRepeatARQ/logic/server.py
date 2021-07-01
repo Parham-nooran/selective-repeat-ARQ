@@ -1,3 +1,6 @@
+"""
+استفاده از کتابخانه ها ی مورد نیاز
+"""
 import socket
 import struct
 import time
@@ -6,10 +9,22 @@ import tkinter as tk
 # from main.SelectiveRepeatARQ.graphics import Plotter
 from threading import Thread
 
+"""
+قرار دادن اطلاعات مربوط به اتصال و نحوه ی اتصال به صورت Global در ابتدای کد
+
+"""
+
 FORMAT = "utf-8"
 HOST = socket.gethostbyname(socket.gethostname())
 PORT = 5050
 ADDRESS = (HOST, PORT)
+
+"""
+
+کلاس Server برای نگه داشتن اطلاعات مهم سرور و استفاده از آن برای نمایش گرافیکی اطلاعات پیام و نحوه ی دریافت آن تعریف 
+شده است. تابع server_program برای اتصال به کلاینت با استفاده از اطلاعات اتصال تعریف شده در ابتدای کد به کار می رود.
+
+"""
 
 
 class Server:
