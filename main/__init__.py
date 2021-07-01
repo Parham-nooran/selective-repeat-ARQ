@@ -1,5 +1,6 @@
 import threading
 import time
+import random
 from collections import OrderedDict
 # from main.SelectiveRepeatARQ.logic import client
 #
@@ -33,9 +34,7 @@ from collections import OrderedDict
     # test[:5] = [0, False] * 5
     # print(test)
 if __name__ == '__main__':
-    for i in range(5):
-        print(i)
-        time.sleep(2)
+    # print("[4, 3, 2, 5, 6, 7, 8]"[2:-2])
     # test = {}
     #
     # for i in range(10)[5:]:
@@ -45,4 +44,5 @@ if __name__ == '__main__':
     # print(test)
     # print(list(test.keys())[0])
     # print(-1 % 5)
+    print(random.random())
 

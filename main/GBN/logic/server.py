@@ -38,31 +38,44 @@ class PacketManager:
         self.addr = addr
         self.expectedFrame = 0
         self.received = 0
+        self.maxWindowSize = 2 ** fieldLength - 1
         self.fieldLength = fieldLength
         self.dataSize = dataSize
 
-    def sendAck(self, data):
+    def sendAck(self, data=None, askedSeqNum=None):
         seqNum = struct.unpack("=I", data[:4])[0]
-        if seqNum == self.expectedFrame:
-            self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", (seqNum + 1) % 2 ** self.fieldLength))
-            print(f"Send ack {seqNum}")
-            self.result += data.decode(FORMAT)[6:]
-            self.expectedFrame += 1
+        if data is None:
+            if 0 < askedSeqNum < self.expectedFrame or askedSeqNum < (self.expectedFrame - self.maxWindowSize) %\
+                    2 ** self.fieldLength and askedSeqNum < self.expectedFrame:
+                self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", self.expectedFrame))
+            else:
+                self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", askedSeqNum))
         else:
-            self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", self.expectedFrame))
-        self.expectedFrame %= 2 ** self.fieldLength
+            if seqNum == self.expectedFrame:
+                self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", (seqNum + 1) % 2 ** self.fieldLength))
+                print(f"Send ack {seqNum}")
+                self.result += data.decode(FORMAT)[5:-2]
+                self.expectedFrame += 1
+            else:
+                self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", self.expectedFrame))
+            self.expectedFrame %= 2 ** self.fieldLength
 
     def start(self):
         while self.received < self.dataSize:
             print(len(self.result), self.dataSize)
             print(self.result)
             data = self.conn.recv(1024)
+            seqNum = struct.unpack("=I", data[:4])[0]
             if not data:
                 break
-            seqNum = struct.unpack("=I", data[:4])[0]
-            self.received += self.fieldLength
-            print(f"[{self.addr}] Sequence number : {seqNum}, data :{data.decode(FORMAT)[6:]}")
-            self.sendAck(data)
+            p_f = data[4]
+            print("P/F = ", p_f)
+            if p_f:
+                self.sendAck(seqNum)
+            else:
+                self.received += self.fieldLength
+                print(f"[{self.addr}] Sequence number : {seqNum}, data :{data.decode(FORMAT)[5:-2]}")
+                self.sendAck(data)
         print(self.result)
         self.conn.close()
 

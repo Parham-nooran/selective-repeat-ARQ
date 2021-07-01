@@ -2,8 +2,9 @@ import socket
 import struct
 import time
 from collections import OrderedDict
-
-from main.SelectiveRepeatARQ.graphics import Plotter
+import tkinter as tk
+# from main.SelectiveRepeatARQ.graphics import Plotter
+from threading import Thread
 
 FORMAT = "utf-8"
 HOST = socket.gethostbyname(socket.gethostname())
@@ -11,28 +12,38 @@ PORT = 5050
 ADDRESS = (HOST, PORT)
 
 
-def server_program():
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(ADDRESS)
-    server_socket.listen()
-    runningTimes = OrderedDict()
-    for i in range(14):
-        print(f"[LISTENING] Server is listening on {HOST}")
-        conn, addr = server_socket.accept()
-        print('[CONNECTING] Connected by', addr)
-        start = time.time()
-        data = conn.recv(1024)
-        dataSize = struct.unpack("=I", data[:4])[0]
-        fieldLength = struct.unpack("=H", data[4:6])[0]
-        # window = Window(dataSize)
-        PacketManager(conn, addr, fieldLength, dataSize).start()
-        end = time.time()
-        print(f"Elapsed time : {(end - start) * 1000} ms")
-        if fieldLength not in runningTimes.keys():
-            runningTimes[fieldLength] = []
-        runningTimes[fieldLength].append((end - start) * 1000)
-        print(runningTimes)
-    Plotter(runningTimes).plot()
+class Server:
+    def __init__(self, rangeOfML=14):
+        self.graphiste = None
+        self.server_socket = None
+        self.rangeOfML = rangeOfML
+        self.packetManager = None
+        self.fieldLength = None
+
+    def server_program(self):
+        print(f"[STARTING] Server is starting ...")
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind(ADDRESS)
+        self.server_socket.listen()
+        runningTimes = OrderedDict()
+        for i in range(self.rangeOfML):
+            print(f"[LISTENING] Server is listening on {HOST}")
+            conn, addr = self.server_socket.accept()
+            print('[CONNECTING] Connected by', addr)
+            start = time.time()
+            data = conn.recv(1024)
+            dataSize = struct.unpack("=I", data[:4])[0]
+            self.fieldLength = struct.unpack("=H", data[4:6])[0]
+            # window = Window(dataSize)
+            self.packetManager = PacketManager(conn, addr, self.fieldLength, self.graphiste, dataSize)
+            self.packetManager.start()
+            end = time.time()
+            print(f"Elapsed time : {(end - start) * 1000} ms")
+            if self.fieldLength not in runningTimes.keys():
+                runningTimes[self.fieldLength] = []
+            runningTimes[self.fieldLength].append((end - start) * 1000)
+            print(runningTimes)
+        # Plotter(runningTimes).plot()
 
 
 class Window:
@@ -44,7 +55,7 @@ class Window:
 
 
 class PacketManager:
-    def __init__(self, conn, addr, fieldLength, dataSize=60):
+    def __init__(self, conn, addr, fieldLength, graphiste, dataSize=60):
         self.conn = conn
         self.buffer = {}
         self.addr = addr
@@ -52,6 +63,8 @@ class PacketManager:
         self.expectedFrame = 0
         self.received = 0
         self.result = ''
+        self.lastRej = None
+        self.graphiste = graphiste
         self.maxWindowSize = 2 ** (fieldLength - 1)
         self.fieldLength = fieldLength
         self.dataSize = dataSize
@@ -63,36 +76,54 @@ class PacketManager:
             self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", (seqNum + 1) % (2 ** self.fieldLength)))
             print(f"Send ack {seqNum}")
             self.result += data.decode(FORMAT)[6:]
+            self.received += self.fieldLength
             self.expectedFrame += 1
+            print("Result First cond : ", self.result)
             if len(self.buffer) != 0 and seqNum in self.buffer:
                 del self.buffer[seqNum]
 
+        elif len(self.buffer) != 0 and seqNum in self.buffer.keys():
+            print("Third condition")
+            self.buffer[seqNum] = data.decode(FORMAT)[6:]
         elif (len(self.buffer) == 0 and (self.expectedFrame < seqNum < 2 ** self.fieldLength
-                                       or seqNum < (self.expectedFrame + self.maxWindowSize) % 2 ** self.fieldLength)) \
-                or ((self.expectedFrame < seqNum < 2 ** self.fieldLength
+                                         or seqNum < (self.expectedFrame + self.maxWindowSize) % 2 ** self.fieldLength)) \
+                or ((self.expectedFrame < seqNum < (self.expectedFrame + self.maxWindowSize) % 2 ** self.fieldLength
                      or seqNum < (self.expectedFrame - self.maxWindowSize) % 2 ** self.fieldLength)
                     and 0 < len(self.buffer) < self.maxWindowSize):
-
-            for i in range(self.expectedFrame, seqNum if seqNum > self.expectedFrame else 2 ** self.fieldLength +
-                                                                                          seqNum):
-                self.buffer[i % 2 ** self.fieldLength] = None
-                self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", i % (2 ** self.fieldLength)))
+            print("Second condition")
+            start = self.expectedFrame if len(self.buffer) == 0 else \
+                (list(self.buffer.keys())[len(self.buffer.keys()) - 1] + 1) % (2 ** self.fieldLength)
+            print("Start : ", start)
+            for i in range(start, seqNum if seqNum >= start else 2 ** self.fieldLength + seqNum):
+                if i % 2 ** self.fieldLength not in self.buffer:
+                    self.buffer[i % 2 ** self.fieldLength] = None
+                    print(f"Sent reject for {i % (2 ** self.fieldLength)}")
 
             self.buffer[seqNum] = data.decode(FORMAT)[6:]
 
-        elif len(self.buffer) != 0 and seqNum in self.buffer.keys():
-            self.buffer[seqNum] = data.decode(FORMAT)[6:]
         if len(self.buffer) != 0:
+            print(self.buffer)
             temp = self.buffer.copy().keys()
             for k in temp:
                 if self.buffer[k] is not None:
                     self.result += self.buffer[k]
+                    self.received += self.fieldLength
                     del self.buffer[k]
                     self.expectedFrame += 1
+                else:
+                    break
+            print("Result last cond : ", self.result)
+            print(self.buffer, self.expectedFrame)
+
+            if len(self.buffer) != 0 and self.lastRej is None or self.lastRej == self.expectedFrame % \
+                    (2 ** self.fieldLength):
+                self.conn.sendall(struct.pack("=?", True) + struct.pack("=I", self.expectedFrame
+                                                                        % (2 ** self.fieldLength)))
+                self.lastRej = self.expectedFrame % (2 ** self.fieldLength)
 
         self.expectedFrame %= 2 ** self.fieldLength
-
-
+        # if len(self.buffer) != 0:
+        #     self.conn.sendall(struct.pack("=?", False) + struct.pack("=I", self.expectedFrame % (2 ** self.fieldLength)))
 
     def start(self):
         while self.received < self.dataSize:
@@ -101,13 +132,35 @@ class PacketManager:
             if not data:
                 break
             seqNum = struct.unpack("=I", data[:4])[0]
-            self.received += self.fieldLength
+            if self.graphiste is not None:
+                self.graphiste.receive(data.decode(FORMAT)[6:])
             print(f"[{self.addr}] Sequence number : {seqNum}, data :{data.decode(FORMAT)[6:]}")
             self.sendAck(data)
-
+        print(self.result)
         self.conn.close()
 
 
-if __name__ == '__main__':
-    print(f"[STARTING] Server is starting ...")
-    server_program()
+class Graphiste:
+    def __init__(self, server):
+        self.server = server
+        self.server.graphiste = self
+        self.server.graphiste = self
+        self.fieldLength = self.server.fieldLength
+        self.root = tk.Tk()
+        self.count = 0
+
+    def start(self):
+        serverThread = Thread(target=self.server.server_program)
+        serverThread.start()
+        tk.mainloop()
+
+    def receive(self, data):
+        self.count += 1
+        label = tk.Label(text=data)
+        label.grid(row=self.count, column=1)
+
+
+# if __name__ == '__main__':
+
+Server().server_program()
+# Graphiste(Server()).start()
